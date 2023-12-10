@@ -1,7 +1,5 @@
 const User = require("../models/User");
-
-
-exports.signin = async () => {
+exports.allUser = async () => {
   // check all register user
   try {
     const user = await User.find({});

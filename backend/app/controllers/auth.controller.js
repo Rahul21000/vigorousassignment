@@ -1,10 +1,8 @@
 const User = require("../models/user.model");
+const config = require("../config/auth.config");
+const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const dotenv=require("dotenv");
-dotenv.config();
-
-const secret_key=process.env.SECRET_KEY
 
 exports.signup = async (req, res) => {
   try {
@@ -15,7 +13,7 @@ exports.signup = async (req, res) => {
       cpassword: bcrypt.hashSync(req.body.password, 12),
     });
 
-    if (createUser) res.send({ message: "User registered successfully!" });
+    if (createUser) res.send({ message: "Registered successfully!" });
   } catch (error) {
     res.status(500).send({ message: error.message });
   }
@@ -24,11 +22,11 @@ exports.signup = async (req, res) => {
 exports.signin = async (req, res) => {
   try {
     const user = await User.findOne({
-      username: req.body.username,
+      $or: [{ username: req.body.username }, { email: req.body.email }],
     });
 
     if (!user) {
-      return res.status(404).send({ message: "User Not found." });
+      return res.status(404).send({ message: "User Not found!" });
     }
 
     const passwordIsValid = bcrypt.compareSync(
@@ -42,22 +40,30 @@ exports.signin = async (req, res) => {
       });
     }
 
-    const token = jwt.sign({ username: user.username }, secret_key, {
-      algorithm: ['RS256'],
+    const token = jwt.sign({ username: user.username }, config.secret_key, {
+      algorithm: config.algorithm,
       allowInsecureKeySizes: true,
       expiresIn: 129600, // 36 hours
     });
-
+    
     req.session.token = token;
 
     return res.status(200).send({
-      username: user.username,
-      email: user.email,
+      message: "You've been signed in!",
     });
   } catch (error) {
     return res.status(500).send({ message: error.message });
   }
 };
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: config.your_email,
+    pass: config.password,
+  },
+});
+
 
 exports.signout = async (req, res) => {
   try {
@@ -72,12 +78,35 @@ exports.signout = async (req, res) => {
 
 exports.reset = async (req, res) => {
   try {
-    // req.session = null;
-    const username = req.body.username;
+    const existUser = await User.findOne({
+      $or: [{ username: req.body.username }, { email: req.body.email }],
+    });
 
-    const existUser = await User.findOne({ username: username });
-    return res.status(200).send({
-      email: existUser.email,
+    const resetToken = jwt.sign(
+      { username: req.body.username },
+      config.secret_key,
+      {
+        // algorithm: ["HS256"],
+        allowInsecureKeySizes: true,
+        expiresIn: 144000,
+      }
+    );
+
+    const mailOption = {
+      from: config.your_email,
+      to: existUser.email,
+      subject: "Password Reset",
+      text: `Click on the following link to reset your password: ${config.reset_url}/${config.resetToken}`,
+    };
+    transporter.sendMail(mailOption, (err, info) => {
+      if (err) {
+        res.status(500).send({ message: err.message });
+      } else {
+        return res.status(200).send({
+          email: `password reset sent to your ${existUser.email}`,
+          info: `Email sent ${info.response}`,
+        });
+      }
     });
   } catch (err) {
     this.next(err);
